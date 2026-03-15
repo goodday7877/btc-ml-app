@@ -7,10 +7,13 @@ import altair as alt
 # ⚠️ 請分別填入您 1H 和 4H 專案的 Firebase 網址 (記得結尾要有 / )
 FIREBASE_URL_1H = "https://btc-ml-2-default-rtdb.firebaseio.com/" 
 FIREBASE_URL_4H = "https://btc-ml-b62b7-default-rtdb.firebaseio.com/"
+
+# 要交易/顯示的幣種列表 (需與後端設定一致)
+SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'BNB/USDT']
 # ==============================================
 
 # 設定手機版網頁外觀
-st.set_page_config(page_title="BTC AI 訊號雷達", page_icon="🤖", layout="centered")
+st.set_page_config(page_title="AI 預測雷達", page_icon="🤖", layout="centered")
 
 st.markdown("""
 <style>
@@ -22,125 +25,145 @@ st.markdown("""
     .buy-card { background-color: rgba(39, 174, 96, 0.1); border-left: 5px solid #27ae60; }
     .sell-card { background-color: rgba(231, 76, 60, 0.1); border-left: 5px solid #e74c3c; }
     .hold-card { background-color: rgba(241, 196, 15, 0.1); border-left: 5px solid #f1c40f; }
-    .signal-icon { font-size: 20px; font-weight: bold; }
+    .signal-icon { font-size: 18px; font-weight: bold; display: flex; align-items: center; gap: 8px; }
+    .symbol-text { font-size: 16px; color: #444; background: #fff; padding: 2px 6px; border-radius: 4px; border: 1px solid #ddd; }
     .price-text { font-size: 16px; font-weight: bold; color: #333; }
-    .time-text { font-size: 12px; color: #7f8c8d; }
+    .time-text { font-size: 12px; color: #7f8c8d; margin-top: 4px; }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🤖 BTC AI 預測雷達")
-st.write("雙時間級別：最新預測走勢與歷史紀錄")
+st.title("🤖 多幣種 AI 預測雷達")
+st.write("雙時間級別：所有幣種趨勢一目了然")
 
 if st.button("🔄 重新載入最新訊號"):
     st.rerun()
 
-# 建立一個通用的渲染函數，這次改為接收完整的專案網址
-def render_dashboard(project_url, title_prefix):
-    try:
-        # 後端腳本如果是上傳到預設的 latest_signals.json，這裡就直接接在網址後面
-        # 確保網址組合正確（避免出現雙斜線 //）
+def render_combined_dashboard(project_url, title_prefix):
+    all_data = []
+    
+    # 1. 抓取所有幣種的資料
+    for symbol in SYMBOLS:
+        sym_firebase_key = symbol.replace('/', '_')
         base_url = project_url.rstrip('/')
-        full_url = f"{base_url}/latest_signals.json"
+        full_url = f"{base_url}/live_signals/{sym_firebase_key}.json"
         
-        response = requests.get(full_url)
-        
-        if response.status_code == 200 and response.json() is not None:
-            data = response.json()
-            
-            # === 繪製彩色折線圖區塊 ===
-            chart_data = []
-            for item in data:
-                sig = item.get("signal", "")
-                if "SELL" in sig:
-                    val = 1
-                    color = "#e74c3c"
-                    action = "🔴 賣出"
-                elif "BUY" in sig:
-                    val = -1
-                    color = "#27ae60"
-                    action = "🟢 買入"
-                else:
-                    val = 0
-                    color = "#f1c40f"
-                    action = "🟡 觀望"
-                    
-                time_str = str(item.get("timestamp", ""))
-                short_time = time_str[5:16] if len(time_str) >= 16 else time_str
+        try:
+            response = requests.get(full_url)
+            if response.status_code == 200 and response.json() is not None:
+                data_dict = response.json()
+                data_list = list(data_dict.values())
                 
-                chart_data.append({
-                    "時間": short_time, 
-                    "訊號位階": val, 
-                    "動作": action,
-                    "顏色": color
-                })
-                
-            df = pd.DataFrame(chart_data)
-            
-            st.subheader(f"📈 {title_prefix} 近期決策趨勢")
-            
-            # 1. 畫出基礎的灰色折線
-            line = alt.Chart(df).mark_line(color='gray', opacity=0.5).encode(
-                x=alt.X('時間', sort=None, title='時間 (月-日 時:分)'),
-                y=alt.Y('訊號位階', scale=alt.Scale(domain=[-1.5, 1.5]), title='', axis=alt.Axis(values=[-1, 0, 1]))
-            )
-            
-            # 2. 在折線上疊加彩色的圓點
-            points = alt.Chart(df).mark_circle(size=200, opacity=1).encode(
-                x=alt.X('時間', sort=None),
-                y=alt.Y('訊號位階'),
-                color=alt.Color('顏色', scale=None),
-                tooltip=['時間', '動作'] 
-            )
-            
-            # 3. 結合線條與點點並顯示
-            final_chart = (line + points).properties(height=250)
-            st.altair_chart(final_chart, use_container_width=True)
-            
-            st.divider() 
-            
-            # === 歷史卡片區塊 ===
-            st.subheader(f"📋 {title_prefix} 詳細紀錄")
-            
-            data.reverse() 
-            
-            for item in data:
-                signal = item.get("signal", "⚪ HOLD")
-                raw_price = item.get("price", 0)
-                price = float(raw_price) if raw_price != "" else 0.0
-                timestamp = item.get("timestamp", "")
-                
-                if "BUY" in signal:
-                    css_class = "buy-card"
-                    icon = "🟢 買入"
-                elif "SELL" in signal:
-                    css_class = "sell-card"
-                    icon = "🔴 賣出"
-                else:
-                    css_class = "hold-card"
-                    icon = "🟡 觀望"
-                
-                st.markdown(f"""
-                <div class="signal-card {css_class}">
-                    <div>
-                        <div class="signal-icon">{icon}</div>
-                        <div class="time-text">{timestamp}</div>
-                    </div>
-                    <div class="price-text">${price:,.2f}</div>
-                </div>
-                """, unsafe_allow_html=True)
-        else:
-            st.info(f"目前 {title_prefix} 專案雲端還沒有資料。")
-            
-    except Exception as e:
-        st.error(f"連線至 {title_prefix} 資料庫失敗：{e}")
+                # 依時間排序並取最近的 30 筆，避免圖表過載
+                data_list.sort(key=lambda x: x.get('timestamp', ''))
+                for item in data_list[-30:]:
+                    item['symbol'] = symbol
+                    all_data.append(item)
+        except Exception as e:
+            st.error(f"連線至 {symbol} 資料庫失敗：{e}")
 
-# === 使用 Streamlit Tabs 建立分頁介面 ===
+    if not all_data:
+        st.info(f"目前 {title_prefix} 專案雲端還沒有任何資料。")
+        return
+
+    # 2. 準備繪圖資料
+    chart_data = []
+    # 為了不讓三個幣種的線完全重疊，我們給 Y 軸一點微小的偏移值
+    offsets = {'BTC/USDT': 0.1, 'ETH/USDT': 0.0, 'BNB/USDT': -0.1}
+    
+    for item in all_data:
+        sig = item.get("signal", "")
+        sym = item.get("symbol", "")
+        
+        if "SELL" in sig:
+            base_val = 1
+            action = "🔴 賣出"
+        elif "BUY" in sig:
+            base_val = -1
+            action = "🟢 買入"
+        else:
+            base_val = 0
+            action = "🟡 觀望"
+            
+        val = base_val + offsets.get(sym, 0)
+        time_str = str(item.get("timestamp", ""))
+        short_time = time_str[5:16] if len(time_str) >= 16 else time_str
+        price = float(item.get("price", 0)) if item.get("price", "") != "" else 0.0
+        
+        chart_data.append({
+            "時間": short_time, 
+            "訊號位階": val, 
+            "動作": action,
+            "幣種": sym,
+            "價格": price
+        })
+        
+    df = pd.DataFrame(chart_data)
+    
+    st.subheader(f"📈 {title_prefix} 多幣種綜合趨勢")
+    
+    # 繪製各幣種專屬的趨勢線 (依照幣種給定不同顏色)
+    line = alt.Chart(df).mark_line(opacity=0.6).encode(
+        x=alt.X('時間', sort=None, title='時間 (月-日 時:分)'),
+        y=alt.Y('訊號位階', scale=alt.Scale(domain=[-1.5, 1.5]), axis=alt.Axis(values=[-1, 0, 1])),
+        color=alt.Color('幣種', title="趨勢線 (幣種)"),
+        detail='幣種'
+    )
+    
+    # 繪製買賣訊號點 (綠色買、紅色賣、黃色觀望)
+    points = alt.Chart(df).mark_circle(size=120, opacity=1).encode(
+        x=alt.X('時間', sort=None),
+        y=alt.Y('訊號位階'),
+        color=alt.Color('動作', scale=alt.Scale(
+            domain=['🟢 買入', '🔴 賣出', '🟡 觀望'],
+            range=['#27ae60', '#e74c3c', '#f1c40f']
+        ), title="動作"),
+        shape=alt.Shape('幣種', title="幣種"),
+        tooltip=['時間', '幣種', '動作', '價格']
+    )
+    
+    # 合併顯示
+    final_chart = (line + points).properties(height=350)
+    st.altair_chart(final_chart, use_container_width=True)
+    
+    st.divider() 
+    
+    # 3. 綜合歷史卡片區塊 (混合排序：最新到最舊)
+    st.subheader(f"📋 {title_prefix} 最新動態列")
+    all_data.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+    
+    for item in all_data:
+        signal = item.get("signal", "⚪ HOLD")
+        raw_price = item.get("price", 0)
+        price = float(raw_price) if raw_price != "" else 0.0
+        timestamp = item.get("timestamp", "")
+        sym = item.get("symbol", "")
+        
+        if "BUY" in signal:
+            css_class = "buy-card"
+            icon = "🟢"
+        elif "SELL" in signal:
+            css_class = "sell-card"
+            icon = "🔴"
+        else:
+            css_class = "hold-card"
+            icon = "🟡"
+        
+        st.markdown(f"""
+        <div class="signal-card {css_class}">
+            <div>
+                <div class="signal-icon">{icon} <span class="symbol-text">{sym}</span></div>
+                <div class="time-text">{timestamp}</div>
+            </div>
+            <div class="price-text">${price:,.2f}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+
+# === 使用 Streamlit Tabs 建立主分頁 ===
 tab1, tab2 = st.tabs(["⚡ 1H 短線策略", "🛡️ 4H 波段策略"])
 
 with tab1:
-    # 傳入 1H 專案的網址
-    render_dashboard(project_url=FIREBASE_URL_1H, title_prefix="1H")
+    render_combined_dashboard(project_url=FIREBASE_URL_1H, title_prefix="1H")
 
 with tab2:
-    # 傳入 4H 專案的網址
-    render_dashboard(project_url=FIREBASE_URL_4H, title_prefix="4H")
+    render_combined_dashboard(project_url=FIREBASE_URL_4H, title_prefix="4H")
