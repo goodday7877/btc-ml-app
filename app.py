@@ -67,8 +67,8 @@ def render_combined_dashboard(project_url, title_prefix):
 
     # 2. 準備繪圖資料
     chart_data = []
-    # 為了不讓三個幣種的線完全重疊，我們給 Y 軸一點微小的偏移值
-    offsets = {'BTC/USDT': 0.1, 'ETH/USDT': 0.0, 'BNB/USDT': -0.1}
+    # 【修改】各幣種的偏移值改為 1.5，製造出垂直分層效果
+    offsets = {'BTC/USDT': 1.5, 'ETH/USDT': 0.0, 'BNB/USDT': -1.5}
     
     for item in all_data:
         sig = item.get("signal", "")
@@ -101,28 +101,34 @@ def render_combined_dashboard(project_url, title_prefix):
     
     st.subheader(f"📈 {title_prefix} 多幣種綜合趨勢")
     
-    # 繪製各幣種專屬的趨勢線 (依照幣種給定不同顏色)
-    line = alt.Chart(df).mark_line(opacity=0.6).encode(
+    # 【修改】繪製各幣種專屬的趨勢線 (獨立顏色且加粗相連)
+    line = alt.Chart(df).mark_line(opacity=0.7, strokeWidth=3).encode(
         x=alt.X('時間', sort=None, title='時間 (月-日 時:分)'),
-        y=alt.Y('訊號位階', scale=alt.Scale(domain=[-1.5, 1.5]), axis=alt.Axis(values=[-1, 0, 1])),
-        color=alt.Color('幣種', title="趨勢線 (幣種)"),
-        detail='幣種'
+        y=alt.Y('訊號位階', scale=alt.Scale(domain=[-3.0, 3.0]), axis=alt.Axis(labels=False, ticks=False, title='位階 (上帶:BTC / 中帶:ETH / 下帶:BNB)')),
+        color=alt.Color('幣種', scale=alt.Scale(
+            domain=['BTC/USDT', 'ETH/USDT', 'BNB/USDT'],
+            range=['#3498db', '#9b59b6', '#e67e22'] # BTC藍、ETH紫、BNB橘
+        ), title="幣種連線"),
+        detail='幣種' # 確保線條只連接相同幣種的點
     )
     
-    # 繪製買賣訊號點 (綠色買、紅色賣、黃色觀望)
-    points = alt.Chart(df).mark_circle(size=120, opacity=1).encode(
+    # 【修改】繪製圖示點 (點內填滿買賣顏色，形狀對應幣種)
+    points = alt.Chart(df).mark_point(size=180, opacity=1, filled=True).encode(
         x=alt.X('時間', sort=None),
         y=alt.Y('訊號位階'),
         color=alt.Color('動作', scale=alt.Scale(
             domain=['🟢 買入', '🔴 賣出', '🟡 觀望'],
             range=['#27ae60', '#e74c3c', '#f1c40f']
         ), title="動作"),
-        shape=alt.Shape('幣種', title="幣種"),
+        shape=alt.Shape('幣種', scale=alt.Scale(
+            domain=['BTC/USDT', 'ETH/USDT', 'BNB/USDT'],
+            range=['circle', 'square', 'triangle'] # BTC圓、ETH方、BNB三角
+        ), title="幣種圖示"),
         tooltip=['時間', '幣種', '動作', '價格']
     )
     
     # 合併顯示
-    final_chart = (line + points).properties(height=350)
+    final_chart = (line + points).properties(height=380)
     st.altair_chart(final_chart, use_container_width=True)
     
     st.divider() 
