@@ -24,7 +24,7 @@ st.markdown("""
     }
     .buy-card { background-color: rgba(39, 174, 96, 0.1); border-left: 5px solid #27ae60; }
     .sell-card { background-color: rgba(231, 76, 60, 0.1); border-left: 5px solid #e74c3c; }
-    .hold-card { background-color: rgba(241, 196, 15, 0.1); border-left: 5px solid #f1c40f; }
+    .hold-card { background-color: rgba(236, 240, 241, 0.5); border-left: 5px solid #bdc3c7; }
     .signal-icon { font-size: 18px; font-weight: bold; display: flex; align-items: center; gap: 8px; }
     .symbol-text { font-size: 16px; color: #444; background: #fff; padding: 2px 6px; border-radius: 4px; border: 1px solid #ddd; }
     .price-text { font-size: 16px; font-weight: bold; color: #333; }
@@ -53,9 +53,9 @@ def render_combined_dashboard(project_url, title_prefix):
                 data_dict = response.json()
                 data_list = list(data_dict.values())
                 
-                # 依時間排序並取最近的 30 筆，避免圖表過載
+                # 【修改】依時間排序並取最近的 10 筆，避免圖表過載
                 data_list.sort(key=lambda x: x.get('timestamp', ''))
-                for item in data_list[-30:]:
+                for item in data_list[-10:]:
                     item['symbol'] = symbol
                     all_data.append(item)
         except Exception as e:
@@ -67,7 +67,6 @@ def render_combined_dashboard(project_url, title_prefix):
 
     # 2. 準備繪圖資料
     chart_data = []
-    # 【修改】各幣種的偏移值改為 1.5，製造出垂直分層效果
     offsets = {'BTC/USDT': 1.5, 'ETH/USDT': 0.0, 'BNB/USDT': -1.5}
     
     for item in all_data:
@@ -82,7 +81,7 @@ def render_combined_dashboard(project_url, title_prefix):
             action = "🟢 買入"
         else:
             base_val = 0
-            action = "🟡 觀望"
+            action = "⚪ 觀望" # 配合現貨模型更新為觀望
             
         val = base_val + offsets.get(sym, 0)
         time_str = str(item.get("timestamp", ""))
@@ -101,28 +100,28 @@ def render_combined_dashboard(project_url, title_prefix):
     
     st.subheader(f"📈 {title_prefix} 多幣種綜合趨勢")
     
-    # 【修改】繪製各幣種專屬的趨勢線 (獨立顏色且加粗相連)
+    # 繪製各幣種專屬的趨勢線
     line = alt.Chart(df).mark_line(opacity=0.7, strokeWidth=3).encode(
         x=alt.X('時間', sort=None, title='時間 (月-日 時:分)'),
         y=alt.Y('訊號位階', scale=alt.Scale(domain=[-3.0, 3.0]), axis=alt.Axis(labels=False, ticks=False, title='位階 (上帶:BTC / 中帶:ETH / 下帶:BNB)')),
         color=alt.Color('幣種', scale=alt.Scale(
             domain=['BTC/USDT', 'ETH/USDT', 'BNB/USDT'],
-            range=['#3498db', '#9b59b6', '#e67e22'] # BTC藍、ETH紫、BNB橘
+            range=['#3498db', '#9b59b6', '#e67e22'] 
         ), title="幣種連線"),
-        detail='幣種' # 確保線條只連接相同幣種的點
+        detail='幣種' 
     )
     
-    # 【修改】繪製圖示點 (點內填滿買賣顏色，形狀對應幣種)
+    # 繪製圖示點
     points = alt.Chart(df).mark_point(size=180, opacity=1, filled=True).encode(
         x=alt.X('時間', sort=None),
         y=alt.Y('訊號位階'),
         color=alt.Color('動作', scale=alt.Scale(
-            domain=['🟢 買入', '🔴 賣出', '🟡 觀望'],
-            range=['#27ae60', '#e74c3c', '#f1c40f']
+            domain=['🟢 買入', '🔴 賣出', '⚪ 觀望'],
+            range=['#27ae60', '#e74c3c', '#bdc3c7']
         ), title="動作"),
         shape=alt.Shape('幣種', scale=alt.Scale(
             domain=['BTC/USDT', 'ETH/USDT', 'BNB/USDT'],
-            range=['circle', 'square', 'triangle'] # BTC圓、ETH方、BNB三角
+            range=['circle', 'square', 'triangle'] 
         ), title="幣種圖示"),
         tooltip=['時間', '幣種', '動作', '價格']
     )
@@ -133,12 +132,15 @@ def render_combined_dashboard(project_url, title_prefix):
     
     st.divider() 
     
-    # 3. 綜合歷史卡片區塊 (混合排序：最新到最舊)
-    st.subheader(f"📋 {title_prefix} 最新動態列")
+    # 3. 綜合歷史卡片區塊
+    st.subheader(f"📋 {title_prefix} 最新 10 筆動態列")
+    
+    # 混合排序：最新到最舊
     all_data.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
     
-    for item in all_data:
-        signal = item.get("signal", "⚪ HOLD")
+    # 【修改】只抓取總資料列的前 10 筆
+    for item in all_data[:10]:
+        signal = item.get("signal", "⚪ WAIT")
         raw_price = item.get("price", 0)
         price = float(raw_price) if raw_price != "" else 0.0
         timestamp = item.get("timestamp", "")
@@ -152,7 +154,7 @@ def render_combined_dashboard(project_url, title_prefix):
             icon = "🔴"
         else:
             css_class = "hold-card"
-            icon = "🟡"
+            icon = "⚪"
         
         st.markdown(f"""
         <div class="signal-card {css_class}">
@@ -163,7 +165,6 @@ def render_combined_dashboard(project_url, title_prefix):
             <div class="price-text">${price:,.2f}</div>
         </div>
         """, unsafe_allow_html=True)
-
 
 # === 使用 Streamlit Tabs 建立主分頁 ===
 tab1, tab2 = st.tabs(["⚡ 1H 短線策略", "🛡️ 4H 波段策略"])
